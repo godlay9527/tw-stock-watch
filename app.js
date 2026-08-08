@@ -109,3 +109,55 @@ function toggleAutoRefresh(){autoRefresh=!autoRefresh; alert(autoRefresh?"已開
 document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("active"));b.classList.add("active");document.querySelectorAll(".tab").forEach(x=>x.classList.add("hidden"));document.getElementById(b.dataset.tab).classList.remove("hidden")});
 setInterval(()=>{if(autoRefresh) refreshAll()},300000);
 render();
+
+
+/* V3.1: manual add/edit/delete holdings; quote refresh on app startup */
+(function(){
+  function load(){return holdings}
+  function save(){localStorage.setItem("tw_holdings_v2",JSON.stringify(holdings))}
+  function renderManager(){
+    const el=document.getElementById("v31-holdings-list"); if(!el)return;
+    el.innerHTML=holdings.map((h,i)=>`<div class="v31-hrow">
+      <div><b>${h[1]}</b><small>${h[0]}</small></div>
+      <div><span>股數</span><b>${Number(h[2]).toLocaleString()}</b></div>
+      <div><span>成本</span><b>${money(h[3])}</b></div>
+      <button data-edit="${i}">修正</button><button data-del="${i}" class="v31-danger">刪除</button>
+    </div>`).join("") || '<div class="small">目前沒有持股，請新增。</div>';
+    el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openForm(+b.dataset.edit));
+    el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+      const i=+b.dataset.del;
+      if(confirm(`確定刪除 ${holdings[i][1]}（${holdings[i][0]}）？`)){holdings.splice(i,1);save();renderManager();render();}
+    });
+  }
+  function openForm(i){
+    const h=i==null?["","",0,0,0]:holdings[i];
+    const m=document.createElement('div');m.className='v31-mask';
+    m.innerHTML=`<div class="v31-card"><h2>${i==null?'新增持股':'修正持股'}</h2>
+      <label>股票代號</label><input id="v31-code" value="${h[0]==='ETF?'?'':h[0]}" placeholder="例如 2330">
+      <label>股票名稱</label><input id="v31-name" value="${h[1]}" placeholder="例如 台積電">
+      <label>持股數量（股）</label><input id="v31-qty" type="number" min="0" step="1" value="${h[2]}">
+      <label>平均成本</label><input id="v31-cost" type="number" min="0" step="0.01" value="${h[3]}">
+      <div class="v31-actions"><button id="v31-cancel">取消</button><button id="v31-save">儲存</button></div></div>`;
+    document.body.appendChild(m);
+    m.querySelector('#v31-cancel').onclick=()=>m.remove();
+    m.querySelector('#v31-save').onclick=()=>{
+      const code=m.querySelector('#v31-code').value.trim(),name=m.querySelector('#v31-name').value.trim(),qty=Number(m.querySelector('#v31-qty').value),cost=Number(m.querySelector('#v31-cost').value);
+      if(!/^\d{4,6}$/.test(code)||!name||qty<0||cost<0){alert('請輸入正確股票代號、名稱、股數與平均成本。');return;}
+      const oldPrice=i==null?0:(holdings[i][4]||0);
+      const item=[code,name,qty,cost,oldPrice];
+      if(i==null) holdings.push(item); else holdings[i]=item;
+      save();m.remove();renderManager();refreshAll();
+    };
+  }
+  window.addEventListener('DOMContentLoaded',()=>{
+    const panel=document.createElement('div');panel.id='v31-holdings-panel';panel.className='v31-panel';
+    panel.innerHTML=`<div class="v31-panel-head"><div><b>📋 持股管理</b><small>可手動修正、刪除或增加持股</small></div><button id="v31-add">＋新增持股</button></div><div id="v31-holdings-list"></div>`;
+    const settings=document.getElementById('settings');settings.insertBefore(panel,settings.firstChild);
+    document.querySelector('[data-tab="portfolio"]').addEventListener('click',()=>{panel.classList.add('show');renderManager();});
+    document.querySelector('[data-tab="settings"]').addEventListener('click',()=>{panel.classList.add('show');renderManager();});
+    document.getElementById('v31-add').onclick=()=>openForm(null);
+    renderManager();
+    // Synchronize latest quotes as soon as the app opens.
+    refreshAll();
+  });
+})();
