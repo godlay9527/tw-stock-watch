@@ -1,435 +1,88 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台股智慧買賣提醒 V3 - 個人投資管理中心</title>
-    <!-- Tailwind CSS -->
+    <title>我的投資組合監控</title>
+    <!-- 引入 Tailwind CSS 進行設計 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Alpine.js -->
+    <!-- 引入 Alpine.js 處理邏輯 -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <!-- FontAwesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <!-- PWA Meta -->
-    <meta name="theme-color" content="#0f172a">
-    <link rel="manifest" href="manifest.json">
-    <style>
-        body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col" x-data="stockAppV3()">
+<body class="bg-slate-950 text-slate-200 font-sans">
 
-    <!-- 頂部導覽列 -->
-    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-md">
-        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-            <div class="flex items-center space-x-2">
-                <span class="text-xl">📈</span>
-                <h1 class="text-base font-bold text-emerald-400">台股智慧買賣 V3</h1>
+    <div x-data="stockApp()" x-init="init()" class="max-w-md mx-auto p-4 min-h-screen">
+        <!-- 標題區域 -->
+        <header class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-2xl font-bold text-white">資產儀表板</h1>
+                <p class="text-xs text-slate-500">自動監控與財經快訊</p>
             </div>
-            <div class="flex items-center space-x-2">
-                <span class="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-1 rounded-full">
-                    半年期績效追蹤中
-                </span>
-            </div>
-        </div>
-    </header>
+            <button @click="syncPrices()" :class="loading ? 'animate-spin' : ''" class="bg-slate-800 p-3 rounded-full hover:bg-slate-700 transition">
+                🔄
+            </button>
+        </header>
 
-    <!-- 主要內容區 -->
-    <main class="max-w-7xl mx-auto px-4 py-6 mb-24 flex-grow w-full space-y-6">
-        
-        <!-- 頁籤 1：我的持股與 6 個月績效追蹤 -->
-        <section x-show="currentTab === 'portfolio'" class="space-y-6">
-            
-            <!-- 投資摘要面板 (含半年追蹤與除權息累計) -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                    <div class="text-xs text-slate-400">總投入成本</div>
-                    <div class="text-lg font-bold text-slate-200 mt-1" x-text="formatMoney(totalCost)"></div>
-                </div>
-                <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                    <div class="text-xs text-slate-400">即時總市值</div>
-                    <div class="text-lg font-bold text-emerald-400 mt-1" x-text="formatMoney(totalMarketValue)"></div>
-                </div>
-                <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                    <div class="text-xs text-slate-400">累積除權息股利</div>
-                    <div class="text-lg font-bold text-amber-400 mt-1" x-text="'+ ' + formatMoney(totalDividend)"></div>
-                </div>
-                <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                    <div class="text-xs text-slate-400">含息總未實現損益</div>
-                    <div class="text-lg font-bold mt-1" :class="totalProfitWithDiv >= 0 ? 'text-red-400' : 'text-emerald-400'" x-text="(totalProfitWithDiv >= 0 ? '+' : '') + formatMoney(totalProfitWithDiv) + ' (' + totalProfitPercentage + '%)'"></div>
-                </div>
-            </div>
-
-            <!-- 操作區：新增持股與手動調整 -->
-            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <div>
-                    <h2 class="text-sm font-bold text-slate-200">💼 個人 9 檔核心持股動態管理</h2>
-                    <p class="text-xs text-slate-400 mt-0.5">支援手動調整買入、賣出、修改成本與股數，並自動計入半年來除權息獲利。</p>
-                </div>
-                <button @click="openAddModal = true" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3.5 py-2 rounded-lg font-medium transition shadow flex items-center space-x-1.5">
-                    <i class="fa-solid fa-plus"></i><span>新增／調整持股</span>
-                </button>
-            </div>
-
-            <!-- 持股列表表格 -->
-            <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-lg">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm text-slate-300">
-                        <thead class="bg-slate-800/80 text-xs text-slate-400 uppercase tracking-wider">
-                            <tr>
-                                <th class="p-3.5">代號 / 名稱</th>
-                                <th class="p-3.5">持有股數</th>
-                                <th class="p-3.5">均價成本</th>
-                                <th class="p-3.5">即時現價</th>
-                                <th class="p-3.5">除權息累計</th>
-                                <th class="p-3.5">含息總損益</th>
-                                <th class="p-3.5">估值與建議</th>
-                                <th class="p-3.5 text-center">操作</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-800">
-                            <template x-for="(stock, index) in myPortfolio" :key="stock.code">
-                                <tr class="hover:bg-slate-800/40 transition">
-                                    <td class="p-3.5 font-medium text-white">
-                                        <div x-text="stock.name"></div>
-                                        <div class="text-xs text-slate-400" x-text="stock.code"></div>
-                                    </td>
-                                    <td class="p-3.5" x-text="stock.shares.toLocaleString() + ' 股'"></td>
-                                    <td class="p-3.5" x-text="stock.cost.toFixed(2)"></td>
-                                    <td class="p-3.5 text-emerald-400 font-semibold" x-text="stock.currentPrice.toFixed(2)"></td>
-                                    <td class="p-3.5 text-amber-400" x-text="'+ ' + formatMoney(stock.dividendEarned)"></td>
-                                    <td class="p-3.5 font-medium" :class="stock.totalProfit >= 0 ? 'text-red-400' : 'text-emerald-400'">
-                                        <span x-text="(stock.totalProfit >= 0 ? '+' : '') + formatMoney(stock.totalProfit) + ' (' + stock.profitPercentage + '%)'"></span>
-                                    </td>
-                                    <td class="p-3.5">
-                                        <div class="flex flex-col space-y-1">
-                                            <span class="px-2 py-0.5 text-xs rounded-full w-fit" 
-                                                  :class="{
-                                                      'bg-emerald-950 text-emerald-300 border border-emerald-800': stock.status === '便宜價',
-                                                      'bg-blue-950 text-blue-300 border border-blue-800': stock.status === '合理價',
-                                                      'bg-red-950 text-red-300 border border-red-800': stock.status === '昂貴價'
-                                                  }" x-text="stock.status"></span>
-                                            <span class="text-xs font-semibold" :class="stock.action.includes('減碼') ? 'text-red-400' : 'text-emerald-400'" x-text="stock.action"></span>
-                                        </div>
-                                    </td>
-                                    <td class="p-3.5 text-center">
-                                        <div class="flex justify-center space-x-2">
-                                            <button @click="editStock(index)" class="text-slate-400 hover:text-emerald-400 p-1" title="調整股數/成本">
-                                                <i class="fa-solid fa-pen-to-square"></i>
-                                            </button>
-                                            <button @click="removeStock(index)" class="text-slate-400 hover:text-red-400 p-1" title="刪除持股">
-                                                <i class="fa-solid fa-trash"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- 半年追蹤圖表解說卡片 -->
-            <div class="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-3">
-                <h3 class="text-sm font-bold text-slate-200 flex items-center space-x-2">
-                    <i class="fa-solid fa-chart-line text-emerald-400"></i>
-                    <span>半年期投資追蹤摘要與分析 (過去 6 個月)</span>
-                </h3>
-                <p class="text-xs text-slate-400 leading-relaxed">
-                    在過去半年的市場震盪中，您的 9 檔核心持股透過「價格安全邊際＋殖利率護城河」策略，總報酬率維持穩健成長。系統自動將這半年內發放的現金股利（除權息）納入報酬計算，讓您能精準評估長期存股與動態調整的實際效益。
-                </p>
-            </div>
-        </section>
-
-        <!-- 頁籤 2：今天買什麼 TOP 10 -->
-        <section x-show="currentTab === 'buyTop10'" class="space-y-4">
-            <h2 class="text-md font-bold text-emerald-400 flex items-center space-x-2">
-                <i class="fa-solid fa-fire"></i>
-                <span>今天買什麼 TOP 10（安全邊際＋半年低檔佈局）</span>
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <template x-for="item in buyTop10" :key="item.code">
-                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800 flex justify-between items-center hover:border-emerald-700/50 transition">
+        <!-- 持股列表 -->
+        <div class="space-y-4">
+            <template x-for="stock in myPortfolio" :key="stock.code">
+                <div class="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-xl">
+                    <div class="flex justify-between items-start mb-4">
                         <div>
-                            <div class="flex items-center space-x-2">
-                                <span class="bg-emerald-600 text-slate-950 font-bold text-xs px-2 py-0.5 rounded" x-text="'TOP ' + item.rank"></span>
-                                <span class="font-bold text-white" x-text="item.name"></span>
-                                <span class="text-xs text-slate-400" x-text="item.code"></span>
-                            </div>
-                            <div class="text-xs text-slate-400 mt-2 space-x-3">
-                                <span>本益比: <strong class="text-slate-200" x-text="item.pe"></strong></span>
-                                <span>預估殖利率: <strong class="text-emerald-400" x-text="item.yield"></strong></span>
-                                <span>半年上漲勝率: <strong class="text-red-400" x-text="item.prob"></strong></span>
-                            </div>
+                            <h2 class="font-bold text-lg text-white" x-text="stock.name"></h2>
+                            <a :href="'https://www.google.com/search?q=' + stock.name + '+新聞'" target="_blank" 
+                               class="text-[10px] uppercase tracking-widest text-emerald-500 hover:underline mt-1 block">查看新聞 →</a>
                         </div>
                         <div class="text-right">
-                            <div class="text-sm font-bold text-emerald-400" x-text="'$ ' + item.price"></div>
-                            <div class="text-xs text-slate-400 mt-1" x-text="item.status"></div>
+                            <div class="text-xl font-mono font-bold" x-text="stock.price ? stock.price : '載入中...'"></div>
+                            <div :class="stock.change >= 0 ? 'text-red-500' : 'text-emerald-400'" 
+                                 class="text-xs font-mono" 
+                                 x-text="(stock.change >= 0 ? '+' : '') + stock.change"></div>
                         </div>
                     </div>
-                </template>
-            </div>
-        </section>
-
-        <!-- 頁籤 3：今天賣什麼 TOP 10 -->
-        <section x-show="currentTab === 'sellTop10'" class="space-y-4">
-            <h2 class="text-md font-bold text-red-400 flex items-center space-x-2">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-                <span>今天賣什麼 TOP 10（乖離過大與換股建議）</span>
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <template x-for="item in sellTop10" :key="item.code">
-                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800 flex justify-between items-center hover:border-red-700/50 transition">
-                        <div>
-                            <div class="flex items-center space-x-2">
-                                <span class="bg-red-600 text-slate-950 font-bold text-xs px-2 py-0.5 rounded" x-text="'WARN ' + item.rank"></span>
-                                <span class="font-bold text-white" x-text="item.name"></span>
-                                <span class="text-xs text-slate-400" x-text="item.code"></span>
-                            </div>
-                            <div class="text-xs text-slate-400 mt-2 space-x-3">
-                                <span>本益比: <strong class="text-slate-200" x-text="item.pe"></strong></span>
-                                <span>半年累積漲幅過大</span>
-                            </div>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-sm font-bold text-red-400" x-text="'$ ' + item.price"></div>
-                            <div class="text-xs text-slate-400 mt-1" x-text="item.reason"></div>
-                        </div>
-                    </div>
-                </template>
-            </div>
-        </section>
-
-        <!-- 頁籤 4：大盤多空與設定 -->
-        <section x-show="currentTab === 'settings'" class="space-y-6">
-            <div class="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4">
-                <h2 class="text-sm font-bold text-slate-200">🌐 大盤多空環境與半年度風險評估</h2>
-                <div class="p-3.5 bg-slate-800/50 rounded-lg text-sm space-y-3">
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">大盤中期趨勢：</span>
-                        <strong class="text-emerald-400">中多格局（嚴選便宜價分批佈局）</strong>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">半年均線乖離：</span>
-                        <span class="text-slate-200">正乖離收斂，盤勢健康輪動</span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">三大法人動向：</span>
-                        <span class="text-emerald-400">外資回補、投信連買偏多</span>
+                    
+                    <!-- 持倉資訊 -->
+                    <div class="bg-slate-950 p-3 rounded-xl flex justify-between text-xs">
+                        <span class="text-slate-500">損益計算:</span>
+                        <span :class="(stock.price - stock.cost) * stock.shares >= 0 ? 'text-red-500' : 'text-emerald-400'" 
+                              class="font-mono font-bold"
+                              x-text="((stock.price - stock.cost) * stock.shares).toFixed(0)"></span>
                     </div>
                 </div>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- 底部固定導覽列 -->
-    <nav class="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 py-2.5 px-4 flex justify-around text-xs text-slate-400 z-50">
-        <button @click="currentTab = 'portfolio'" :class="currentTab === 'portfolio' ? 'text-emerald-400 font-bold' : ''" class="flex flex-col items-center space-y-1">
-            <i class="fa-solid fa-briefcase text-base"></i><span>我的持股</span>
-        </button>
-        <button @click="currentTab = 'buyTop10'" :class="currentTab === 'buyTop10' ? 'text-emerald-400 font-bold' : ''" class="flex flex-col items-center space-y-1">
-            <i class="fa-solid fa-cart-shopping text-base"></i><span>買進 TOP 10</span>
-        </button>
-        <button @click="currentTab = 'sellTop10'" :class="currentTab === 'sellTop10' ? 'text-emerald-400 font-bold' : ''" class="flex flex-col items-center space-y-1">
-            <i class="fa-solid fa-triangle-exclamation text-base"></i><span>賣出 TOP 10</span>
-        </button>
-        <button @click="currentTab = 'settings'" :class="currentTab === 'settings' ? 'text-emerald-400 font-bold' : ''" class="flex flex-col items-center space-y-1">
-            <i class="fa-solid fa-chart-pie text-base"></i><span>大盤與設定</span>
-        </button>
-    </nav>
-
-    <!-- 新增 / 編輯持股 Modal -->
-    <div x-show="openAddModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" style="display: none;">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 class="text-md font-bold text-white" x-text="editIndex === null ? '➕ 新增持股與成本設定' : '✏️ 編輯持股資料'"></h3>
-            <div class="space-y-3 text-sm">
-                <div>
-                    <label class="text-xs text-slate-400 block mb-1">股票代號</label>
-                    <input type="text" x-model="form.code" placeholder="例: 2330" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500">
-                </div>
-                <div>
-                    <label class="text-xs text-slate-400 block mb-1">股票名稱</label>
-                    <input type="text" x-model="form.name" placeholder="例: 台積電" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500">
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs text-slate-400 block mb-1">持有股數</label>
-                        <input type="number" x-model.number="form.shares" placeholder="例: 1000" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500">
-                    </div>
-                    <div>
-                        <label class="text-xs text-slate-400 block mb-1">平均成本價</label>
-                        <input type="number" step="0.01" x-model.number="form.cost" placeholder="例: 580" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500">
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs text-slate-400 block mb-1">即時現價</label>
-                        <input type="number" step="0.01" x-model.number="form.currentPrice" placeholder="例: 980" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500">
-                    </div>
-                    <div>
-                        <label class="text-xs text-slate-400 block mb-1">半年累積除權息金額 (元)</label>
-                        <input type="number" step="0.01" x-model.number="form.dividendEarned" placeholder="例: 5000" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:outline-none focus:border-emerald-500">
-                    </div>
-                </div>
-            </div>
-            <div class="flex justify-end space-x-3 pt-2">
-                <button @click="openAddModal = false; resetForm()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-lg text-xs transition">取消</button>
-                <button @click="saveStock()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-medium transition">儲存變更</button>
-            </div>
+            </template>
         </div>
     </div>
 
-    <!-- Alpine.js 邏輯與計算 -->
     <script>
-        function stockAppV3() {
-            return {
-                currentTab: 'portfolio',
-                openAddModal: false,
-                editIndex: null,
-                form: { code: '', name: '', shares: 1000, cost: 0, currentPrice: 0, dividendEarned: 0 },
-                
-                // 9 檔持股初始資料（含 6 個月追蹤股數、成本與除權息累計）
-                myPortfolio: [
-                    { code: '2330', name: '台積電', shares: 2000, cost: 580, currentPrice: 980, dividendEarned: 12000, status: '合理價', action: '續抱' },
-                    { code: '2454', name: '聯發科', shares: 1000, cost: 1050, currentPrice: 1280, dividendEarned: 25000, status: '昂貴價', action: '建議減碼' },
-                    { code: '2317', name: '鴻海', shares: 3000, cost: 135, currentPrice: 185, dividendEarned: 15400, status: '合理價', action: '續抱' },
-                    { code: '2881', name: '富邦金', shares: 5000, cost: 68, currentPrice: 88, dividendEarned: 18000, status: '便宜價', action: '加碼配置' },
-                    { code: '2882', name: '國泰金', shares: 4000, cost: 52, currentPrice: 65, dividendEarned: 14000, status: '便宜價', action: '加碼配置' },
-                    { code: '2308', name: '台達電', shares: 1500, cost: 380, currentPrice: 420, dividendEarned: 9000, status: '合理價', action: '續抱' },
-                    { code: '2603', name: '長榮', shares: 2000, cost: 170, currentPrice: 165, dividendEarned: 20000, status: '便宜價', action: '觀望' },
-                    { code: '3034', name: '聯詠', shares: 1000, cost: 450, currentPrice: 490, dividendEarned: 16000, status: '合理價', action: '續抱' },
-                    { code: '1101', name: '台泥', shares: 6000, cost: 35, currentPrice: 33, dividendEarned: 12000, status: '便宜價', action: '長線存股續抱' }
-                ],
-
-                buyTop10: [
-                    { rank: 1, code: '2884', name: '玉山金', price: 27.5, pe: '14.2', yield: '4.8%', prob: '78%', status: '便宜價區間' },
-                    { rank: 2, code: '2891', name: '中信金', price: 36.2, pe: '11.5', yield: '5.2%', prob: '82%', status: '便宜價區間' },
-                    { rank: 3, code: '2303', name: '聯電', price: 54.0, pe: '13.1', yield: '4.5%', prob: '71%', status: '安全邊際高' }
-                ],
-
-                sellTop10: [
-                    { rank: 1, code: '3661', name: '世芯-KY', price: 2450, pe: '42.0', reason: '半年漲幅過大，法人調節' },
-                    { rank: 2, code: '3035', name: '智原', price: 380, pe: '35.5', reason: '乖離率過高，建議獲利入袋' }
-                ],
-
-                get totalCost() {
-                    return this.myPortfolio.reduce((sum, s) => sum + (s.cost * s.shares), 0);
-                },
-
-                get totalMarketValue() {
-                    return this.myPortfolio.reduce((sum, s) => sum + (s.currentPrice * s.shares), 0);
-                },
-
-                get totalDividend() {
-                    return this.myPortfolio.reduce((sum, s) => sum + s.dividendEarned, 0);
-                },
-
-                get totalProfitWithDiv() {
-                    return (this.totalMarketValue - this.totalCost) + this.totalDividend;
-                },
-
-                get totalProfitPercentage() {
-                    if (this.totalCost === 0) return '0.0';
-                    return ((this.totalProfitWithDiv / this.totalCost) * 100).toFixed(1);
-                },
-
-                formatMoney(amount) {
-                    return Math.round(amount).toLocaleString();
-                },
-
-                // 計算每檔股票含息損益
-                getProcessedPortfolio() {
-                    return this.myPortfolio.map(stock => {
-                        const costTotal = stock.cost * stock.shares;
-                        const marketValue = stock.currentPrice * stock.shares;
-                        const capitalGain = marketValue - costTotal;
-                        const totalProfit = capitalGain + stock.dividendEarned;
-                        const profitPercentage = costTotal > 0 ? ((totalProfit / costTotal) * 100).toFixed(1) : '0.0';
-                        return { ...stock, totalProfit, profitPercentage };
-                    });
-                },
-
-                editStock(index) {
-                    this.editIndex = index;
-                    this.form = { ...this.myPortfolio[index] };
-                    this.openAddModal = true;
-                },
-
-                removeStock(index) {
-                    if(confirm('確定要刪除這檔持股嗎？')) {
-                        this.myPortfolio.splice(index, 1);
-                    }
-                },
-
-                saveStock() {
-                    if (!this.form.code || !this.form.name) {
-                        alert('請填寫股票代號與名稱');
-                        return;
-                    }
-                    if (this.editIndex === null) {
-                        this.myPortfolio.push({ ...this.form });
-                    } else {
-                        this.myPortfolio[this.editIndex] = { ...this.form };
-                    }
-                    this.openAddModal = false;
-                    this.resetForm();
-                },
-
-                resetForm() {
-                    this.editIndex = null;
-                    this.form = { code: '', name: '', shares: 1000, cost: 0, currentPrice: 0, dividendEarned: 0 };
-                }
-            }
-        }
-        <script>
-    function stockAppV3() {
+    function stockApp() {
         return {
-            currentTab: 'portfolio',
-            // ... (其他資料保持不變)
-
-            // 1. 自動同步股價函數
+            loading: false,
+            // 【設定你的持股】: cost 是你的買進平均價, shares 是持有股數
+            myPortfolio: [
+                { code: '2330.TW', name: '台積電', cost: 900, shares: 1000 },
+                { code: '2317.TW', name: '鴻海', cost: 180, shares: 2000 },
+                { code: '2454.TW', name: '聯發科', cost: 1100, shares: 500 }
+            ],
             async syncPrices() {
-                // 這裡使用 Yahoo Finance 簡易接口模擬
-                // 注意：若需完全即時，建議未來部署一個小型 Cloudflare Worker
-                console.log("正在同步即時行情...");
-                this.myPortfolio.forEach(stock => {
-                    // 模擬：這裡未來可替換為正式 API call
-                    // fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${stock.code}.TW`)
-                    console.log(`已更新 ${stock.name} 最新報價`);
-                });
+                this.loading = true;
+                for (let stock of this.myPortfolio) {
+                    try {
+                        const url = `https://api.allorigins.win/get?url=${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/' + stock.code)}`;
+                        const res = await fetch(url);
+                        const data = await res.json();
+                        const meta = JSON.parse(data.contents).chart.result[0].meta;
+                        stock.price = meta.regularMarketPrice.toFixed(2);
+                        stock.change = (meta.regularMarketPrice - meta.previousClose).toFixed(2);
+                    } catch (e) { console.error("更新失敗"); }
+                }
+                this.loading = false;
             },
-
-            // 2. 自動聚合持股新聞
-            get newsList() {
-                return [
-                    { title: "台積電最新營收表現與外資評級報告", source: "鉅亨網", link: "#" },
-                    { title: "聯發科與 AI 手機晶片供應鏈動態", source: "經濟日報", link: "#" },
-                    { title: "鴻海與電動車布局策略深度解析", source: "工商時報", link: "#" }
-                ];
-            },
-
             init() {
                 this.syncPrices();
+                setInterval(() => this.syncPrices(), 300000); // 每 5 分鐘自動刷新
             }
         }
-
-<!-- 在 index.html 的 <main> 區塊中新增一個新聞頁籤 -->
-<section x-show="currentTab === 'news'" class="space-y-4">
-    <h2 class="text-md font-bold text-emerald-400">📰 持股與大盤焦點新聞</h2>
-    <template x-for="news in newsList" :key="news.title">
-        <a :href="news.link" class="block bg-slate-900 p-4 rounded-xl border border-slate-800 hover:border-emerald-600 transition">
-            <div class="font-bold text-white text-sm" x-text="news.title"></div>
-            <div class="text-xs text-slate-500 mt-1" x-text="news.source"></div>
-        </a>
-    </template>
-</section>
-
+    }
     </script>
 </body>
 </html>
-```eof
-
-Your updated V3 slide deck and personal investment management tool featuring 6-month tracking, manual buy/sell/share adjustments, and dividend-included profit calculations is ready! Feel free to take a look and let me know if you'd like to make any edits.
-<!-- 將此區塊加入至 index.html 的 script 標籤內 -->
